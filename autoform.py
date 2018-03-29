@@ -8,16 +8,12 @@
 #    copyright            : (C) 2017 by William Habelt / Sourcepole AG
 #    email                : wha@sourcepole.ch
 
-
-from qgis.core import QgsFeature,  QgsMapLayerRegistry
-from PyQt4.QtCore import *
-from PyQt4.QtGui import *
-from qgis.core import *
-from qgis.gui import *
-from connector import Connector
-from relationretriever import RelationRetriever
-
-import psycopg2
+from qgis.PyQt.QtWidgets import QAction
+from qgis.core import (Qgis, QgsDataSourceUri, QgsProject, QgsVectorLayer,
+                       QgsLayerTreeGroup)
+from qgis.gui import QgsEditorWidgetRegistry
+from .connector import Connector
+from .relationretriever import RelationRetriever
 
 
 class AutoForm:
@@ -31,14 +27,14 @@ class AutoForm:
     here.
     """
 
-    def __init__( self, iface ):
+    def __init__(self, iface):
         self.iface = iface
         self.connector = Connector(iface)
 
     def initGui(self):
         self.action = QAction("Generate Form", self.iface.mainWindow())
         self.iface.addPluginToMenu("AutoForm", self.action)
-        QObject.connect(self.action, SIGNAL("activated()"), self.handleFormofLayer)
+        self.action.triggered.connect(self.handleFormofLayer)
 
     def unload(self):
         self.iface.removePluginMenu("AutoForm", self.action)
@@ -58,61 +54,93 @@ class AutoForm:
         selected_layer = self.iface.activeLayer()
         if selected_layer:
             if selected_layer.dataProvider().name() != 'postgres':
-                self.iface.messageBar().pushMessage("Autoform", "Please select a PostGIS layer before running the plugin.",
-                                                    level=QgsMessageBar.WARNING)
+                self.iface.messageBar().pushMessage(
+                    "Autoform",
+                    "Please select a PostGIS layer before running the plugin.",
+                    level=Qgis.MessageLevel(1))
                 return
             self.identifyRelations(selected_layer)
             self.alterForm(selected_layer)
             self.filterEmptyGroups()
-            self.iface.messageBar().pushMessage("Autoform", "Form widgets were successfully changed!.",
-                                                level=QgsMessageBar.INFO)
+            self.iface.messageBar().pushMessage(
+                "Autoform",
+                "Form widgets were successfully changed!.",
+                level=Qgis.MessageLevel(0))
         else:
-            self.iface.messageBar().pushMessage("Autoform", "Please select a PostGIS layer before running the plugin.",
-                                                level=QgsMessageBar.CRITICAL)
+            self.iface.messageBar().pushMessage(
+                "Autoform",
+                "Please select a PostGIS layer before running the plugin.",
+                level=Qgis.MessageLevel(2))
 
     def alterForm(self, selected_layer):
-        """Iterate over the fields of the layer and alters the widgets in accordance to the typeName and length."""
+        """
+        Iterate over the fields of the layer and alters the widgets in
+        accordance to the typeName and length.
+        """
         not_nullable_columns = self.checkNullableColumns(selected_layer)
 
-        for field_index, field in enumerate(selected_layer.pendingFields()):
+        for field_index, field in enumerate(selected_layer.fields()):
             f_type = field.typeName()
-            if selected_layer.editorWidgetV2(field_index) != 'TextEdit':
+
+            widget_type = QgsEditorWidgetRegistry().findBest(
+                selected_layer, field.displayName())
+            widget_type_name = QgsEditorWidgetRegistry().findBest(
+                selected_layer, field.displayName()).type()
+
+            if widget_type_name != 'TextEdit':
                 pass
             elif f_type == "text":
-                selected_layer.setEditorWidgetV2(field_index, 'TextEdit')
-                selected_layer.setEditorWidgetV2Config(field_index, {
-                    'IsMultiline': True, 'UseHtml': False})
+                selected_layer.setEditorWidgetSetup(field_index, widget_type)
+                selected_layer.editFormConfig().setWidgetConfig(
+                    field.displayName(), {
+                        'IsMultiline': True, 'UseHtml': False})
             elif f_type == "varchar":
-                selected_layer.setEditorWidgetV2(field_index, 'TextEdit')
-                selected_layer.setEditorWidgetV2Config(field_index, {
-                    'IsMultiline': (field.length() > 80), 'UseHtml': False})
+                selected_layer.setEditorWidgetSetup(field_index, widget_type)
+                selected_layer.editFormConfig().setWidgetConfig(
+                    field.displayName(), {
+                        'IsMultiline': (field.length() > 80),
+                        'UseHtml': False})
             elif f_type == "date":
-                selected_layer.setEditorWidgetV2(field_index, 'DateTime')
-                selected_layer.setEditorWidgetV2Config(field_index, {
-                    'display_format': 'yyyy-MM-dd',
-                    'field_format': 'yyyy-MM-dd', 'calendar_popup': True})
+                selected_layer.setEditorWidgetSetup(field_index, widget_type)
+                selected_layer.editFormConfig().setWidgetConfig(
+                    field.displayName(), {
+                        'display_format': 'yyyy-MM-dd',
+                        'field_format': 'yyyy-MM-dd', 'calendar_popup': True})
             elif f_type == "bool":
-                selected_layer.setEditorWidgetV2(field_index, 'CheckBox')
-                selected_layer.setEditorWidgetV2Config(field_index, {
-                    'CheckedState': 't', 'UncheckedState': 'f'})
+                selected_layer.setEditorWidgetSetup(field_index, widget_type)
+                selected_layer.editFormConfig().setWidgetConfig(
+                    field.displayName(), {
+                        'CheckedState': 't', 'UncheckedState': 'f'})
 
-            selected_layer.editFormConfig().setNotNull(field_index,
-                                                       not_nullable_columns[field_index])
+            selected_layer.setFieldConstraint(
+                field_index,
+                not_nullable_columns[field_index])
 
     def handleValueRelations(self, new_layer, ref_native_col_num,
                              ref_foreign_col_num, selected_layer):
-        """Create a ValueRelation widget from the field numbers for the selected layer"""
-        fields = new_layer.pendingFields()
+        """
+        Create a ValueRelation widget from the field numbers for the
+        selected layer
+        """
+        fields = new_layer.fields()
         foreign_column = fields[ref_foreign_col_num - 1].name()
 
-        fields = selected_layer.pendingFields()
+        fields = selected_layer.fields()
         native_column = fields[ref_native_col_num - 1].name()
 
         if native_column and foreign_column:
             column_index = ref_native_col_num - 1
             new_layer_id = new_layer.id()
-            selected_layer.setEditorWidgetV2(column_index, 'ValueRelation')
-            selected_layer.setEditorWidgetV2Config(column_index, {'Layer': new_layer_id, 'Key': foreign_column, 'Value': foreign_column, "AllowMulti": False, "AllowNull": False, "OrderByValue": True})
+
+            widget_type = QgsEditorWidgetRegistry().findBest(
+                selected_layer, column_index.displayName())
+
+            selected_layer.setEditorWidgetSetup(column_index, widget_type)
+            selected_layer.editFormConfig().setWidgetConfig(
+                column_index,
+                {'Layer': new_layer_id, 'Key': foreign_column,
+                 'Value': foreign_column, "AllowMulti": False,
+                 "AllowNull": False, "OrderByValue": True})
             # Repeat the entire process for the layer which was just added
             self.identifyRelations(new_layer)
             self.alterForm(new_layer)
@@ -122,7 +150,7 @@ class AutoForm:
         data = selected_layer.dataProvider()
         if data.name() != 'postgres':
             return
-        uri = QgsDataSourceURI(data.dataSourceUri())
+        uri = QgsDataSourceUri(data.dataSourceUri())
         cur = self.connector.uriDatabaseConnect(uri)
 
         if cur is False:
@@ -159,28 +187,35 @@ class AutoForm:
                 pkeyName = relationretriever.retrieveTablePrimaryKeyName()
                 ref_foreign_col_num = relationretriever.retrieveForeignCol(uri)
                 ref_native_col_num = relationretriever.retrieveNativeCol(uri)
-                new_layer = self.addRefTables(uri, a_table[0], pkeyName, tableGroup)
+                new_layer = self.addRefTables(uri, a_table[0], pkeyName,
+                                              tableGroup)
 
                 if new_layer is not False:
-                    self.handleValueRelations(new_layer, ref_native_col_num, ref_foreign_col_num, selected_layer)
+                    self.handleValueRelations(new_layer, ref_native_col_num,
+                                              ref_foreign_col_num,
+                                              selected_layer)
 
     def addRefTables(self, uri, table, attr_name, tableGroup):
-        """Create a datasource for a referenced layer and add it to the map layer registry."""
-        foreign_uri = QgsDataSourceURI()
-        foreign_uri.setConnection(uri.host(), uri.port(), uri.database(), uri.username(), uri.password())
+        """
+        Create a datasource for a referenced layer and add it to the map
+        layer registry.
+        """
+        foreign_uri = QgsDataSourceUri()
+        foreign_uri.setConnection(uri.host(), uri.port(), uri.database(),
+                                  uri.username(), uri.password())
         foreign_uri.setDataSource(uri.schema(), table, None, "", attr_name)
         new_layer = QgsVectorLayer(foreign_uri.uri(), table, "postgres")
 
         if new_layer.isValid():
             layer_exists = False
 
-            for layers in QgsMapLayerRegistry.instance().mapLayers().values():
+            for layers in QgsProject().mapLayers().values():
                 layer_data = layers.dataProvider()
                 if foreign_uri.uri() == layer_data.dataSourceUri():
                     layer_exists = True
 
             if not layer_exists:
-                QgsMapLayerRegistry.instance().addMapLayer(new_layer, False)
+                QgsProject.addMapLayer(new_layer, False)
                 tableGroup.addLayer(new_layer)
                 return new_layer
             else:
@@ -196,10 +231,13 @@ class AutoForm:
                     root.removeChildNode(child)
 
     def checkNullableColumns(self, selected_layer):
-        """Run query to check for columns that allow NULL-values (postgres provider)"""
+        """
+        Run query to check for columns that allow NULL-values
+        (postgres provider)
+        """
         data = selected_layer.dataProvider()
         if data.name() == 'postgres':
-            uri = QgsDataSourceURI(data.dataSourceUri())
+            uri = QgsDataSourceUri(data.dataSourceUri())
             cur = self.connector.uriDatabaseConnect(uri)
             relationretriever = RelationRetriever(cur)
             # List of columns with the NOT NULL modifier

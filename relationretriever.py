@@ -9,11 +9,11 @@
 #    email                : wha@sourcepole.ch
 
 
-import psycopg2
-
-
 class RelationRetriever:
-    """This class is responsible for retrieving information from the database."""
+    """
+    This class is responsible for retrieving information
+    from the database.
+    """
 
     def __init__(self, cur=None):
         self.cur = cur
@@ -23,10 +23,14 @@ class RelationRetriever:
         self.layer = layer
 
     def retrieveReferencedTables(self, uri):
-        """Retrieve a list of layer id's which are referenced in a foreign key by the selected layer."""
+        """
+        Retrieve a list of layer id's which are referenced in a foreign key
+        by the selected layer.
+        """
         selected_oid = self.retrieveSelectedOid(uri)
 
-        fk_query = "SELECT confrelid FROM pg_constraint WHERE conrelid='%s' AND contype = 'f'" % selected_oid
+        fk_query = "SELECT confrelid FROM pg_constraint WHERE conrelid='%s' \
+        AND contype = 'f'" % selected_oid
         self.cur.execute(fk_query)
         referenced_layers = self.cur.fetchall()
 
@@ -41,9 +45,13 @@ class RelationRetriever:
         return layer_oid[0]
 
     def retrieveForeignCol(self, uri):
-        """Retrieve the number of the field which is referenced in the foreign key relation."""
+        """
+        Retrieve the number of the field which is referenced in the foreign
+        key relation.
+        """
         selected_oid = self.retrieveSelectedOid(uri)
-        fkey_query = "SELECT confkey FROM pg_constraint WHERE conrelid = '%s' AND confrelid = %s AND contype = 'f'" % (selected_oid, self.layer)
+        fkey_query = "SELECT confkey FROM pg_constraint WHERE conrelid = '%s' \
+        AND confrelid = %s AND contype = 'f'" % (selected_oid, self.layer)
         self.cur.execute(fkey_query)
         fkey_column = self.cur.fetchall()
 
@@ -53,9 +61,13 @@ class RelationRetriever:
         return ref_foreign_col_num
 
     def retrieveNativeCol(self, uri):
-        """Retrieve the number of the field which makes a reference in the foreign key relation."""
+        """
+        Retrieve the number of the field which makes a reference in the
+        foreign key relation.
+        """
         selected_oid = self.retrieveSelectedOid(uri)
-        nfield_query = "SELECT conkey FROM pg_constraint WHERE conrelid = '%s' AND confrelid = %s AND contype = 'f'" % (selected_oid, self.layer)
+        nfield_query = "SELECT conkey FROM pg_constraint WHERE conrelid = '%s' \
+        AND confrelid = %s AND contype = 'f'" % (selected_oid, self.layer)
         self.cur.execute(nfield_query)
         nfield_column = self.cur.fetchall()
 
@@ -65,10 +77,14 @@ class RelationRetriever:
         return ref_native_col_num
 
     def retrieveTablePrimaryKeyName(self):
-        """Retrieves the string name of the field that is the primary key of the table."""
+        """
+        Retrieves the string name of the field that is the primary key
+        of the table.
+        """
         table_pkey = self.retrieveTablePrimaryKey()
 
-        pkey_query_2 = "SELECT attname FROM pg_attribute WHERE attrelid='%s' AND attnum = '%s'" % (self.layer, table_pkey)
+        pkey_query_2 = "SELECT attname FROM pg_attribute WHERE attrelid='%s' \
+        AND attnum = '%s'" % (self.layer, table_pkey)
         self.cur.execute(pkey_query_2)
         att_names = self.cur.fetchall()
 
@@ -77,7 +93,8 @@ class RelationRetriever:
 
     def retrieveTablePrimaryKey(self):
         """Retrieves the field number of the primary key in the table."""
-        pkey_query_1 = "SELECT conkey FROM pg_constraint WHERE conrelid = '%s' AND contype = 'p'" % self.layer
+        pkey_query_1 = "SELECT conkey FROM pg_constraint WHERE conrelid = '%s' \
+        AND contype = 'p'" % self.layer
         self.cur.execute(pkey_query_1)
         pkey_column = self.cur.fetchall()
 
@@ -86,7 +103,8 @@ class RelationRetriever:
 
     def retrieveForeignTables(self):
         """Retrieve the string name of the id of the table."""
-        ftable_query = "SELECT relname FROM pg_class WHERE oid='%s'" % self.layer
+        ftable_query = "SELECT relname FROM pg_class WHERE oid='%s'" % (
+            self.layer)
         self.cur.execute(ftable_query)
         foreign_tables = self.cur.fetchall()
 
@@ -96,7 +114,8 @@ class RelationRetriever:
         """Check if the column has the NOT NULL modifier"""
         selected_oid = self.retrieveSelectedOid(uri)
 
-        null_query = "SELECT attnotnull FROM pg_attribute WHERE attrelid='%s' AND attstattarget!=0" % (selected_oid)
+        null_query = "SELECT attnotnull FROM pg_attribute WHERE attrelid='%s' \
+        AND attstattarget!=0" % (selected_oid)
         self.cur.execute(null_query)
         not_nullable_columns = [item[0] for item in self.cur.fetchall()]
 

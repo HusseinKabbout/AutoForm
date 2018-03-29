@@ -9,15 +9,16 @@
 #    email                : wha@sourcepole.ch
 
 
-from PyQt4.QtCore import *
-from PyQt4.QtGui import *
-from qgis.core import *
+from qgis.PyQt.QtWidgets import QMessageBox
+from qgis.core import QgsCredentials
 
 import psycopg2
 
 
 class Connector:
-    """Establishes a connection to the database of a layer, based on its uri."""
+    """
+    Establishes a connection to the database of a layer, based on its uri.
+    """
 
     def __init__(self, iface):
         self.iface = iface
@@ -33,12 +34,17 @@ class Connector:
                 conn = psycopg2.connect(uri.connectionInfo())
                 cur = conn.cursor()
             except psycopg2.OperationalError as e:
-                (ok, user, passwd) = QgsCredentials.instance().get(conninfo, uri.username(), uri.password())
+                (ok, user, passwd) = QgsCredentials.instance().get(
+                    conninfo, uri.username(), uri.password())
                 if not ok:
                     break
 
         if not conn:
-            QMessageBox.warning(self.iface.mainWindow(), "Connection Error", "Could not connect to PostgreSQL database - check connection info")
+            QMessageBox.warning(
+                self.iface.mainWindow(),
+                "Connection Error",
+                "Could not connect to PostgreSQL database -"
+                "check connection info")
 
         if ok:
             QgsCredentials.instance().put(conninfo, user, passwd)
